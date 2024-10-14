@@ -60,11 +60,12 @@ def web_test(datestart,dateend):
         
     return(datestart,url,tree)
 
-# Helper function to clean string (moved for reuse)
+# Helper function to clean string
 def clean_string(text):
-    patterns = [r',', r'"', r"\'", r'\[', r'\]']
+    patterns = [r',', r'"', r"\'", r'\[', r'\]',r'\n']
     for pattern in patterns:
         text = re.sub(pattern, "", text)
+    text = ' '.join(text.split())
     return text
 
 def extract_between(text, start_key, end_key=None):
@@ -167,14 +168,125 @@ def return_times_from_string(strg,day_data):
 
     return(day_data)
 
-# Helper function to handle exceptions
-# def handle_exceptions(strg, conv, adj, insession, chamber, conv_, adj_):
-#     try:
-#         conv.append(extract_between(strg, conv_, "on"))
-#         adj.append(extract_between(strg, adj_, "on"))
-#         timein = calculate_time_in_session(conv[-1], adj[-1])
-#         insession.append("x" if timein >= 60 else "NS")
-#     except:
-#         insession.append("INPUT BY HAND")
-#         conv.append(f"Error: {strg}")
-#         adj.append(f"Error: {strg}")
+# Main function to calculate working days
+def workingdays(start="01/01/2022", end=None,file_name="working_days_cache.csv"):    
+    datestart = datetime.strptime(start, '%m/%d/%Y').date()
+
+    if end is None:
+        dateend = datetime.now().date()       
+    else:
+        dateend = datetime.strptime(end, '%m/%d/%Y').date()
+
+    rows = []  # Use a list to accumulate rows
+    chambers = ["Senate", "House"]
+
+    while datestart <= dateend:
+        datestart, url, tree = web_test(datestart, dateend)
+
+        # next valid webpage may be past dateend, break if so
+        if datestart > dateend:
+            break
+        
+        # for each chamber (House and Senate)
+        for chamber in chambers:
+            date = datestart.strftime("%m/%d/%Y")
+
+            # Initialize values for the day
+            day_data = {
+                "House or Senate": chamber,
+                "Date": date,
+                "Time Convened": None,
+                "Time Adjourned": None,
+                "Time in Session": None,
+                "Working Day?": "INPUT BY HAND",
+                "Scraped adjournment string":None,
+                "url":url
+            }
+
+            xpaths = [
+                f"//center[h2[contains(text(), '{chamber}')]]//following-sibling::p[strong='Adjournment:'][contains(text(),{chamber})]//text()",
+                f"//center[h2[contains(text(), '{chamber}')]]//following-sibling::p/text()",
+                f"//center[h2[contains(text(), '{chamber}')]]//following-sibling::p[contains(translate(text(), 'ADJOURN', 'adjourn'), 'adjourn')]//text()",
+                f"//center[h2[contains(text(), '{chamber}')]]//following-sibling::p[contains(text(),'in session')]//text()",
+                #pre-styled structure
+                f"//pre[@class='styled' and contains(., '{chamber}') and (contains(., 'met at') or contains(., 'adjourned at'))]//text()"
+
+            ]
+            
+            for xp in range(len(xpaths)):
+                try:
+                    # if pre-styled text box (lots of misc text) do some extra processing to select correct element
+                    if xp == (len(xpaths) - 1): #get last xpath
+                        for s in tree.xpath(xpaths[xp]):
+                            s = clean_string(s)
+                            strg = ""
+                            
+                            if "met at" in s:
+                                strg = s
+                            elif "adjourn" in s:
+                                strg = s
+                            elif "convened" in s:
+                                strg = s
+                            elif "in session" in s:
+                                strg = s
+                            elif "recessed at" in s:
+                                strg = s
+                            else:
+                                strg += s #save each result                                
+                    else: # most cases
+                        strg = clean_string("".join(tree.xpath(xpaths[xp])[0:2]))
+                except Exception as e:
+                    print("Error with xpath: ",e)
+                        
+                day_data["Scraped adjournment string"] = strg
+
+                # Not in session
+                if "not in session" in strg:
+                    day_data["Time Convened"] = None
+                    day_data["Time Adjourned"] = None
+                    day_data["Working Day?"] = "NS"
+
+                # Pro forma
+                elif "pro forma" in strg:
+                        day_data["Time Convened"] = None
+                        day_data["Time Adjourned"] = None
+                        day_data["Working Day?"] = "pf"
+                        
+                # try and extrac times
+                else:
+                    try:
+                        day_data = return_times_from_string(strg,day_data)
+                         
+                        if day_data["Time Convened"] and day_data["Time Adjourned"]:
+
+                            #minutes
+                            timein = (day_data["Time Adjourned"] - day_data["Time Convened"]).total_seconds() / 60
+                            day_data["Time in Session"] = timein
+
+                            if timein >= 60:
+                                day_data["Working Day?"] = "x"
+                            elif timein > 0:
+                                day_data["Working Day?"] = "pf"
+
+                            day_data["Time Convened"] = day_data["Time Convened"].strftime("%H:%M%p")
+                            day_data["Time Adjourned"] = day_data["Time Adjourned"].strftime("%H:%M%p")
+
+                    except Exception as e:
+                        print("Issue exracting times, string: ",strg,"\nError:",e)
+                                
+                if day_data["Working Day?"] !=  "INPUT BY HAND":
+                    break
+
+            # Append daily results as a dictionary to the rows list
+            rows.append(day_data)
+            df = pd.DataFrame(rows, columns=day_data.keys())
+            df.to_csv(file_name)
+            
+        # Add one day to the loop
+        datestart += timedelta(days=1)
+
+    # Convert the accumulated rows (list of dictionaries) into a DataFrame
+    df = pd.DataFrame(rows, columns=day_data.keys())
+    df.to_csv(file_name)
+    
+    return df
