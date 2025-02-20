@@ -1,3 +1,3 @@
 ,House or Senate,Date,Time Convened,Time Adjourned,Time in Session,Working Day?,Scraped adjournment string,url
-0,Senate,09/25/2024,1900-01-01 10:00:00,,,INPUT BY HAND,,https://www.congress.gov/congressional-record/2024/9/25/daily-digest
-1,House,09/25/2024,10:00AM,20:49PM,649.0,x,Adjournment: The House met at 10 a.m. and adjourned at 8:49 p.m.,https://www.congress.gov/congressional-record/2024/9/25/daily-digest
+0,Senate,12/19/2024,20:12PM,20:12PM,0.0,INPUT BY HAND,,https://www.congress.gov/congressional-record/2024/12/19/daily-digest
+1,House,12/19/2024,09:00AM,20:47PM,707.0,x,Adjournment: The House met at 9 a.m. and adjourned at 8:47 p.m.,https://www.congress.gov/congressional-record/2024/12/19/daily-digest
